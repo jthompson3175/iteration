@@ -1,0 +1,137 @@
+---
+title: "Simulation"
+author: "Julia Thompson"
+date: "10/31/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rvest)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+
+## Simulate!!
+
+```{r}
+set.seed(1)
+
+sim_regression = function(n, beta0 = 2, beta1 = 3) {
+  
+  sim_data = tibble(
+    x = rnorm(n, mean = 1, sd = 1),
+    y = beta0 + beta1 * x + rnorm(n, 0, 1)
+  )
+  
+  ls_fit = lm(y ~ x, data = sim_data)
+  
+  tibble(
+    beta0_hat = coef(ls_fit)[1],
+    beta1_hat = coef(ls_fit)[2]
+  )
+}
+
+sim_regression(n = 30)
+```
+
+## Re-run simulation using for loops
+
+```{r}
+output = vector("list", 5000)
+
+for (i in 1:5000) {
+  output[[i]] = sim_regression(30)
+}
+
+sim_results = bind_rows(output) 
+
+ggplot(sim_results, aes(x = beta0_hat)) +
+  geom_density()
+```
+
+## Now re-run simulation using purrr
+
+```{r}
+output = rerun(5000, sim_regression(n = 30)) %>% 
+  bind_rows()
+
+ggplot(data = output, aes(x = beta0_hat)) +
+  geom_density()
+
+sim_results %>% 
+  ggplot(aes(x = beta0_hat, y = beta1_hat)) + 
+  geom_point()
+```
+
+Note: estimates are often correlated. Testing two coefficients at the same time is very different from testing one and then the other. For example, having b0 of 2.5 is possible, having a b1 of 3.5 is possible, but having them both at the same time would be UNLIKELY.
+
+```{r}
+# Fix this with pivot longer from github
+
+output %>% 
+  gather(key = parameter, value = estimate, beta0_hat:beta1_hat) %>% 
+  group_by(parameter) %>% 
+  summarize(emp_mean = mean(estimate),
+            emp_var = var(estimate)) %>% 
+  knitr::kable(digits = 3)
+```
+
+## Try another sample size
+
+```{r}
+n_list = list("n_30"  = 30, 
+              "n_60"  = 60, 
+              "n_120" = 120, 
+              "n_240" = 240)
+
+output = vector("list", length = 4)
+
+for (i in 1:4) {
+  output[[i]] = rerun(1000, sim_regression(n_list[[i]])) %>% 
+    bind_rows
+}
+```
+
+```{r}
+sim_results = 
+  tibble(sample_size = c(30, 60, 120, 240)) %>% 
+  mutate(
+    output_list = map(.x = sample_size, ~ rerun(1000, sim_regression(n = .x))),
+    output_df = map(output_list, bind_rows)
+  ) %>% 
+  select(-output_list) %>% 
+  unnest(output_df)
+```
+
+```{r}
+sim_results %>% 
+  group_by(sample_size) %>% 
+  summarize(var_b1 = var(beta1_hat))
+```
+
+```{r}
+sim_results %>% 
+  mutate(
+    sample_size = str_c("n = ", sample_size),
+    sample_size = fct_inorder(sample_size)) %>% 
+  ggplot(aes(x = beta0_hat, y = beta1_hat)) + 
+  geom_point(alpha = .2) + 
+  facet_grid(~sample_size)
+```
+
+
